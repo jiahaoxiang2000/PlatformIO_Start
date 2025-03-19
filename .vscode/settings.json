@@ -57,6 +57,9 @@
   "C_Cpp_Runner.useLinkTimeOptimization": false,
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "files.associations": {
-    "unity.h": "c"
+    "unity.h": "c",
+    "main.h": "c",
+    "RC522.C": "cpp",
+    "MAIN.C": "cpp"
   }
 }
