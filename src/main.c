@@ -5,12 +5,83 @@
 void LED_Init();
 void UART1_Init();
 void SPI2_Init(); // New function declaration
+unsigned char WriteTestDataToCard(unsigned char *serial); // New function declaration
 
 UART_HandleTypeDef huart1;
 SPI_HandleTypeDef hspi2; // SPI2 handle
 
 // Default key for Mifare cards
 static const uint8_t DefaultKey[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// Test data to write to the card
+static const uint8_t TestData[16] = {
+    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+    0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00
+};
+
+unsigned char WriteTestDataToCard(unsigned char *serial)
+{
+    unsigned char status;
+    uint8_t block_addr = 4; // Sector 1, Block 0 (safe block to write)
+    
+    // Authenticate the block
+    status = PcdAuthState(PICC_AUTHENT1A, block_addr, (unsigned char *)DefaultKey, serial);
+    if (status != MI_OK)
+    {
+        printf("Test Write: Authentication failed for block %d\r\n", block_addr);
+        return status;
+    }
+    
+    // Write test data to the block
+    printf("Writing test data to block %d: ", block_addr);
+    for (int i = 0; i < 16; i++)
+    {
+        printf("%02X", TestData[i]);
+    }
+    printf("\r\n");
+    
+    status = PcdWrite(block_addr, (unsigned char *)TestData);
+    if (status != MI_OK)
+    {
+        printf("Test Write: Writing failed for block %d\r\n", block_addr);
+        return status;
+    }
+    
+    printf("Test Write: Data successfully written to block %d\r\n", block_addr);
+    
+    // Read back the data to verify
+    unsigned char read_data[16];
+    status = PcdRead(block_addr, read_data);
+    if (status != MI_OK)
+    {
+        printf("Test Read: Reading failed for block %d\r\n", block_addr);
+        return status;
+    }
+    
+    // Verify the data matches
+    printf("Read back data from block %d: ", block_addr);
+    unsigned char data_match = 1;
+    for (int i = 0; i < 16; i++)
+    {
+        printf("%02X", read_data[i]);
+        if (read_data[i] != TestData[i])
+        {
+            data_match = 0;
+        }
+    }
+    printf("\r\n");
+    
+    if (data_match)
+    {
+        printf("SPI TEST SUCCESSFUL: Written data matches read data\r\n");
+    }
+    else
+    {
+        printf("SPI TEST FAILED: Written data does not match read data\r\n");
+    }
+    
+    return status;
+}
 
 void ReadRFIDCard(void)
 {
@@ -19,24 +90,26 @@ void ReadRFIDCard(void)
     unsigned char card_serial[4];
     unsigned char card_data[16];
     unsigned int i;
-
+    uint8_t sector, block, block_addr;
+    
     // Request card
     status = PcdRequest(PICC_REQALL, card_type);
     if (status != MI_OK)
     {
         return;
     }
-
+    
     // Print card type
+    printf("\r\n===============================\r\n");
     printf("Card Type: %02X%02X\r\n", card_type[0], card_type[1]);
-
+    
     // Anti-collision
     status = PcdAnticoll(card_serial);
     if (status != MI_OK)
     {
         return;
     }
-
+    
     // Print card serial number
     printf("Card Serial: ");
     for (i = 0; i < 4; i++)
@@ -44,41 +117,79 @@ void ReadRFIDCard(void)
         printf("%02X", card_serial[i]);
     }
     printf("\r\n");
-
+    
     // Select card
     status = PcdSelect(card_serial);
     if (status != MI_OK)
     {
         return;
     }
-
-    // Authenticate card
-    status = PcdAuthState(PICC_AUTHENT1A, 1, (unsigned char *)DefaultKey, card_serial);
+    
+    // First, try to write test data and verify SPI is working
+    printf("\r\n--- SPI VERIFICATION TEST ---\r\n");
+    status = WriteTestDataToCard(card_serial);
     if (status != MI_OK)
     {
-        printf("Authentication Failed\r\n");
-        return;
+        printf("SPI verification test failed\r\n");
     }
-
-    // Read data from block 1
-    status = PcdRead(1, card_data);
-    if (status != MI_OK)
+    
+    printf("\r\n--- READING ALL CARD DATA ---\r\n");
+    // Read all sectors (typically 16 sectors in a standard MIFARE 1K card)
+    for (sector = 0; sector < 16; sector++)
     {
-        printf("Read Failed\r\n");
-        return;
+        // Authenticate each sector
+        // First block of the sector is: sector * 4
+        block_addr = sector * 4;
+        
+        // Authenticate using PICC_AUTHENT1A with the default key
+        status = PcdAuthState(PICC_AUTHENT1A, block_addr, (unsigned char *)DefaultKey, card_serial);
+        if (status != MI_OK)
+        {
+            printf("Authentication failed for sector %d\r\n", sector);
+            continue; // Skip to next sector
+        }
+        
+        // Read each block in the sector (4 blocks per sector)
+        for (block = 0; block < 4; block++)
+        {
+            // Calculate block address
+            block_addr = sector * 4 + block;
+            
+            // Skip manufacturer block (block 0 of sector 0)
+            if (sector == 0 && block == 0)
+            {
+                printf("Sector %d, Block %d: Manufacturer data (skipped)\r\n", sector, block);
+                continue;
+            }
+            
+            // Skip sector trailer (last block of each sector)
+            if (block == 3)
+            {
+                printf("Sector %d, Block %d: Sector trailer (skipped)\r\n", sector, block);
+                continue;
+            }
+            
+            // Read block data
+            status = PcdRead(block_addr, card_data);
+            if (status != MI_OK)
+            {
+                printf("Sector %d, Block %d: Read failed\r\n", sector, block);
+                continue;
+            }
+            
+            // Display block data
+            printf("Sector %d, Block %d: ", sector, block);
+            for (i = 0; i < 16; i++)
+            {
+                printf("%02X", card_data[i]);
+            }
+            printf("\r\n");
+        }
     }
-
-    // Display data
-    printf("Card Data: ");
-    for (i = 0; i < 16; i++)
-    {
-        printf("%02X", card_data[i]);
-    }
-    printf("\r\n");
-
+    
     // Halt card
     PcdHalt();
-
+    
     // Blink LED to indicate successful read
     HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_SET);
     HAL_Delay(100);
@@ -87,9 +198,9 @@ void ReadRFIDCard(void)
     HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_SET);
     HAL_Delay(100);
     HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_RESET);
-
+    
     // Add delay to avoid multiple reads of the same card
-    HAL_Delay(500);
+    HAL_Delay(1000); // Extended delay after reading all blocks
 }
 
 int main(void)
