@@ -4,8 +4,14 @@
 
 void LED_Init();
 void UART1_Init();
-void SPI2_Init();                                         // New function declaration
-unsigned char WriteTestDataToCard(unsigned char *serial); // New function declaration
+void SPI2_Init();
+void BUTTON_Init(); // New function declaration
+unsigned char WriteTestDataToCard(unsigned char *serial);
+
+// Define button pin
+#define BUTTON_PIN GPIO_PIN_10
+#define BUTTON_GPIO_PORT GPIOD
+#define BUTTON_GPIO_CLK_ENABLE() __HAL_RCC_GPIOD_CLK_ENABLE()
 
 UART_HandleTypeDef huart1;
 SPI_HandleTypeDef hspi2; // SPI2 handle
@@ -17,6 +23,80 @@ static const uint8_t DefaultKey[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static const uint8_t TestData[16] = {
     0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
     0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+
+// Manufacturer data to write
+static const uint8_t ManufacturerData[16] = {
+    0xDE, 0x74, 0x92, 0x5E, 0x66, 0x28, 0x04, 0x00,
+    0x90, 0x10, 0x15, 0x01, 0x00, 0x00, 0x00, 0x00};
+
+// Flag to control whether to attempt writing to manufacturer block
+static uint8_t attemptManufacturerWrite = 0;
+
+unsigned char WriteManufacturerData(unsigned char *serial)
+{
+    unsigned char status;
+    unsigned char read_data[16];
+    unsigned int i;
+    unsigned char data_match = 1;
+
+    printf("\r\n--- WRITING MANUFACTURER DATA ---\r\n");
+
+    // Authenticate sector 0
+    status = PcdAuthState(PICC_AUTHENT1A, 0, (unsigned char *)DefaultKey, serial);
+    if (status != MI_OK)
+    {
+        printf("Authentication failed for manufacturer data block\r\n");
+        return status;
+    }
+
+    // Write manufacturer data to block 0
+    printf("Writing manufacturer data: ");
+    for (i = 0; i < 16; i++)
+    {
+        printf("%02X", ManufacturerData[i]);
+    }
+    printf("\r\n");
+
+    status = PcdWrite(0, (unsigned char *)ManufacturerData);
+    if (status != MI_OK)
+    {
+        printf("Failed to write manufacturer data\r\n");
+        return status;
+    }
+
+    printf("Manufacturer data written successfully\r\n");
+
+    // Read back the data to verify
+    status = PcdRead(0, read_data);
+    if (status != MI_OK)
+    {
+        printf("Failed to read back manufacturer data\r\n");
+        return status;
+    }
+
+    // Verify the data matches
+    printf("Read back manufacturer data: ");
+    for (i = 0; i < 16; i++)
+    {
+        printf("%02X", read_data[i]);
+        if (read_data[i] != ManufacturerData[i])
+        {
+            data_match = 0;
+        }
+    }
+    printf("\r\n");
+
+    if (data_match)
+    {
+        printf("VERIFICATION SUCCESSFUL: Written data matches read data\r\n");
+    }
+    else
+    {
+        printf("VERIFICATION FAILED: Written data does not match read data\r\n");
+    }
+
+    return status;
+}
 
 void ReadRFIDCard(void)
 {
@@ -60,6 +140,26 @@ void ReadRFIDCard(void)
         return;
     }
 
+    // Only write manufacturer data if flag is set
+    if (attemptManufacturerWrite)
+    {
+        WriteManufacturerData(card_serial);
+        // Reset the flag after attempting a write
+        attemptManufacturerWrite = 0;
+
+        // Reset the card after writing to manufacturer block to ensure fresh state
+        printf("Resetting RFID reader and card after manufacturer block write...\r\n");
+        PcdHalt();
+        PcdReset();
+        PcdAntennaOff();
+        HAL_Delay(100);
+        PcdAntennaOn();
+        HAL_Delay(100);
+        printf("Reset complete. Please remove card and present it again.\r\n");
+        HAL_Delay(2000);
+        return;
+    }
+
     printf("\r\n--- READING ALL CARD DATA ---\r\n");
     // Read all sectors (typically 16 sectors in a standard MIFARE 1K card)
     for (sector = 0; sector < 16; sector++)
@@ -73,7 +173,24 @@ void ReadRFIDCard(void)
         if (status != MI_OK)
         {
             printf("Authentication failed for sector %d\r\n", sector);
-            continue; // Skip to next sector
+
+            // Try alternative keys if default key fails
+            // This can help if the card's auth structure was changed
+            static const uint8_t AlternativeKey[6] = {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5};
+            static const uint8_t FactoryKey[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+            printf("Trying alternative key for sector %d...\r\n", sector);
+            status = PcdAuthState(PICC_AUTHENT1A, block_addr, (unsigned char *)AlternativeKey, card_serial);
+            if (status != MI_OK)
+            {
+                printf("Alternative key failed, trying factory key...\r\n");
+                status = PcdAuthState(PICC_AUTHENT1A, block_addr, (unsigned char *)FactoryKey, card_serial);
+                if (status != MI_OK)
+                {
+                    printf("All keys failed for sector %d\r\n", sector);
+                    continue; // Skip to next sector
+                }
+            }
         }
 
         // Read each block in the sector (4 blocks per sector)
@@ -134,9 +251,12 @@ int main(void)
     HAL_Init();
     LED_Init();
     UART1_Init();
-    SPI2_Init(); // Initialize SPI2 for MFRC522
+    SPI2_Init();   // Initialize SPI2 for MFRC522
+    BUTTON_Init(); // Initialize PD10 as button input
 
     printf("UART1 and SPI2 Initialized - RFID Reader Starting\r\n");
+    printf("Press PD10 button to attempt manufacturer data write\r\n");
+    printf("WARNING: Writing to manufacturer block may damage some cards!\r\n");
 
     // Initialize MFRC522
     PcdReset();
@@ -146,6 +266,14 @@ int main(void)
 
     while (1)
     {
+        // Check if button is pressed to set manufacturer write flag
+        if (HAL_GPIO_ReadPin(BUTTON_GPIO_PORT, BUTTON_PIN) == GPIO_PIN_RESET)
+        {
+            attemptManufacturerWrite = 1;
+            printf("Manufacturer write mode activated for next card!\r\n");
+            HAL_Delay(1000); // Debounce
+        }
+
         // Try to read RFID card
         ReadRFIDCard();
 
@@ -263,4 +391,17 @@ void SPI2_Init()
 
     // A small delay after initialization
     HAL_Delay(10);
+}
+
+void BUTTON_Init()
+{
+    // Enable clock for GPIOD
+    BUTTON_GPIO_CLK_ENABLE();
+
+    GPIO_InitTypeDef GPIO_InitStruct;
+    GPIO_InitStruct.Pin = BUTTON_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(BUTTON_GPIO_PORT, &GPIO_InitStruct);
 }
