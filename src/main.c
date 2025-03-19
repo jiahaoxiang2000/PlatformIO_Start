@@ -1,23 +1,106 @@
 #include "main.h"
 #include <stdio.h>
-#include "mfrc522.h"  // Include MFRC522 header
+#include "mfrc522.h" // Include MFRC522 header
 
 void LED_Init();
 void UART1_Init();
-void SPI2_Init();  // New function declaration
+void SPI2_Init(); // New function declaration
 
 UART_HandleTypeDef huart1;
-SPI_HandleTypeDef hspi2;  // SPI2 handle
+SPI_HandleTypeDef hspi2; // SPI2 handle
+
+// Default key for Mifare cards
+static const uint8_t DefaultKey[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+void ReadRFIDCard(void)
+{
+    unsigned char status;
+    unsigned char card_type[2];
+    unsigned char card_serial[4];
+    unsigned char card_data[16];
+    unsigned int i;
+
+    // Request card
+    status = PcdRequest(PICC_REQALL, card_type);
+    if (status != MI_OK)
+    {
+        return;
+    }
+
+    // Print card type
+    printf("Card Type: %02X%02X\r\n", card_type[0], card_type[1]);
+
+    // Anti-collision
+    status = PcdAnticoll(card_serial);
+    if (status != MI_OK)
+    {
+        return;
+    }
+
+    // Print card serial number
+    printf("Card Serial: ");
+    for (i = 0; i < 4; i++)
+    {
+        printf("%02X", card_serial[i]);
+    }
+    printf("\r\n");
+
+    // Select card
+    status = PcdSelect(card_serial);
+    if (status != MI_OK)
+    {
+        return;
+    }
+
+    // Authenticate card
+    status = PcdAuthState(PICC_AUTHENT1A, 1, (unsigned char *)DefaultKey, card_serial);
+    if (status != MI_OK)
+    {
+        printf("Authentication Failed\r\n");
+        return;
+    }
+
+    // Read data from block 1
+    status = PcdRead(1, card_data);
+    if (status != MI_OK)
+    {
+        printf("Read Failed\r\n");
+        return;
+    }
+
+    // Display data
+    printf("Card Data: ");
+    for (i = 0; i < 16; i++)
+    {
+        printf("%02X", card_data[i]);
+    }
+    printf("\r\n");
+
+    // Halt card
+    PcdHalt();
+
+    // Blink LED to indicate successful read
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_RESET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(LED_GPIO_PORT, LED_PIN, GPIO_PIN_RESET);
+
+    // Add delay to avoid multiple reads of the same card
+    HAL_Delay(500);
+}
 
 int main(void)
 {
     HAL_Init();
     LED_Init();
     UART1_Init();
-    SPI2_Init();  // Initialize SPI2 for MFRC522
+    SPI2_Init(); // Initialize SPI2 for MFRC522
 
-    printf("UART1 and SPI2 Initialized - Hello World\r\n");
-    
+    printf("UART1 and SPI2 Initialized - RFID Reader Starting\r\n");
+
     // Initialize MFRC522
     PcdReset();
     PcdAntennaOff();
@@ -26,9 +109,11 @@ int main(void)
 
     while (1)
     {
-        HAL_GPIO_TogglePin(LED_GPIO_PORT, LED_PIN);
-        printf("LED Toggle\r\n");
-        HAL_Delay(1000);
+        // Try to read RFID card
+        ReadRFIDCard();
+
+        // Small delay between scans
+        HAL_Delay(200);
     }
 }
 
@@ -65,7 +150,7 @@ void UART1_Init()
 
     // Configure UART1
     huart1.Instance = USART1;
-    huart1.Init.BaudRate = 115200; 
+    huart1.Init.BaudRate = 115200;
     huart1.Init.WordLength = UART_WORDLENGTH_8B;
     huart1.Init.StopBits = UART_STOPBITS_1;
     huart1.Init.Parity = UART_PARITY_NONE;
@@ -91,38 +176,38 @@ void SPI2_Init()
 {
     // Enable clock for GPIOB
     SPI2_GPIO_CLK_ENABLE();
-    
+
     // Enable clock for SPI2 peripheral
     SPI2_CLK_ENABLE();
 
     // Configure GPIO pins for SPI2
     GPIO_InitTypeDef GPIO_InitStruct = {0};
-    
+
     // Configure SCK, MISO, MOSI pins
     GPIO_InitStruct.Pin = SPI2_SCK_PIN | SPI2_MISO_PIN | SPI2_MOSI_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;  // Set to the alternate function for SPI2
+    GPIO_InitStruct.Alternate = GPIO_AF5_SPI2; // Set to the alternate function for SPI2
     HAL_GPIO_Init(SPI2_GPIO_PORT, &GPIO_InitStruct);
-    
+
     // Configure CS pin as output
     GPIO_InitStruct.Pin = SPI2_CS_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(SPI2_GPIO_PORT, &GPIO_InitStruct);
-    
+
     // Set CS pin high (inactive)
     HAL_GPIO_WritePin(SPI2_GPIO_PORT, SPI2_CS_PIN, GPIO_PIN_SET);
-    
+
     // Configure RST pin as output
     GPIO_InitStruct.Pin = MFRC522_RST_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     HAL_GPIO_Init(SPI2_GPIO_PORT, &GPIO_InitStruct);
-    
+
     // Configure SPI2
     hspi2.Instance = SPI2;
     hspi2.Init.Mode = SPI_MODE_MASTER;
@@ -131,14 +216,14 @@ void SPI2_Init()
     hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
     hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
     hspi2.Init.NSS = SPI_NSS_SOFT;
-    hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;  // Adjust based on your clock speed
+    hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16; // Adjust based on your clock speed
     hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
     hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
     hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
     hspi2.Init.CRCPolynomial = 7;
-    
+
     HAL_SPI_Init(&hspi2);
-    
+
     // A small delay after initialization
     HAL_Delay(10);
 }
