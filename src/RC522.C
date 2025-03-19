@@ -8,6 +8,9 @@
 #include "main.h"
 #include "mfrc522.h"
 
+// External SPI handle declaration
+extern SPI_HandleTypeDef hspi2; // Using SPI2 for MFRC522
+
 #define MAXRLEN 18
 
 /////////////////////////////////////////////////////////////////////
@@ -404,22 +407,18 @@ void CalulateCRC(unsigned char *pIndata, unsigned char len, unsigned char *pOutD
 /////////////////////////////////////////////////////////////////////
 char PcdReset(void)
 {
-    // unsigned char i;
-    MF522_RST = 1;
+    // Reset using HAL GPIO functions
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+    HAL_Delay(1);
 
-    _nop_();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+    HAL_Delay(1);
 
-    MF522_RST = 0;
-
-    _nop_();
-
-    MF522_RST = 1;
-
-    _nop_();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+    HAL_Delay(1);
 
     WriteRawRC(CommandReg, PCD_RESETPHASE);
-
-    _nop_();
+    HAL_Delay(1);
 
     WriteRawRC(ModeReg, 0x3D); // CRC initial value for Mifare communication 0x6363
     WriteRawRC(TReloadRegL, 30);
@@ -437,32 +436,22 @@ char PcdReset(void)
 /////////////////////////////////////////////////////////////////////
 unsigned char ReadRawRC(unsigned char Address)
 {
-    unsigned char i, ucAddr;
-    unsigned char ucResult = 0;
+    unsigned char txData[2];
+    unsigned char rxData[2];
 
-    MF522_SCK = 0;
-    MF522_NSS = 0;
-    ucAddr = ((Address << 1) & 0x7E) | 0x80;
+    txData[0] = ((Address << 1) & 0x7E) | 0x80; // Address format for reading
+    txData[1] = 0x00;                           // Dummy byte to receive data
 
-    for (i = 8; i > 0; i--)
-    {
-        MF522_SI = ((ucAddr & 0x80) == 0x80);
-        MF522_SCK = 1;
-        ucAddr <<= 1;
-        MF522_SCK = 0;
-    }
+    // Pull CS low to start communication
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
 
-    for (i = 8; i > 0; i--)
-    {
-        MF522_SCK = 1;
-        ucResult <<= 1;
-        ucResult |= (bit)MF522_SO;
-        MF522_SCK = 0;
-    }
+    // Send address and receive data using SPI2
+    HAL_SPI_TransmitReceive(&hspi2, txData, rxData, 2, HAL_MAX_DELAY);
 
-    MF522_NSS = 1;
-    MF522_SCK = 1;
-    return ucResult;
+    // Pull CS high to end communication
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+
+    return rxData[1]; // Return the received data byte
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -472,29 +461,19 @@ unsigned char ReadRawRC(unsigned char Address)
 /////////////////////////////////////////////////////////////////////
 void WriteRawRC(unsigned char Address, unsigned char value)
 {
-    unsigned char i, ucAddr;
+    unsigned char txData[2];
 
-    MF522_SCK = 0;
-    MF522_NSS = 0;
-    ucAddr = ((Address << 1) & 0x7E);
+    txData[0] = ((Address << 1) & 0x7E); // Address format for writing
+    txData[1] = value;
 
-    for (i = 8; i > 0; i--)
-    {
-        MF522_SI = ((ucAddr & 0x80) == 0x80);
-        MF522_SCK = 1;
-        ucAddr <<= 1;
-        MF522_SCK = 0;
-    }
+    // Pull CS low to start communication
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
 
-    for (i = 8; i > 0; i--)
-    {
-        MF522_SI = ((value & 0x80) == 0x80);
-        MF522_SCK = 1;
-        value <<= 1;
-        MF522_SCK = 0;
-    }
-    MF522_NSS = 1;
-    MF522_SCK = 1;
+    // Send address and data using SPI2
+    HAL_SPI_Transmit(&hspi2, txData, 2, HAL_MAX_DELAY);
+
+    // Pull CS high to end communication
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
 }
 
 /////////////////////////////////////////////////////////////////////

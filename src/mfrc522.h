@@ -132,3 +132,10 @@ void ClearBitMask(unsigned char reg, unsigned char mask);
 #define MI_OK 0
 #define MI_NOTAGERR (-1)
 #define MI_ERR (-2)
+
+// the detail point of the MF522
+// MF522_RST: PB9
+// MF522_SCK: PB13
+// MF522_NSS: PB8
+// MF522_SI: PB15
+// MF522_SO: PB14
