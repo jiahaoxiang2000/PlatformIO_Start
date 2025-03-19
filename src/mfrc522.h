@@ -1,4 +1,3 @@
-
 char PcdReset(void);
 void PcdAntennaOn(void);
 void PcdAntennaOff(void);
@@ -23,40 +22,40 @@ void SetBitMask(unsigned char reg, unsigned char mask);
 void ClearBitMask(unsigned char reg, unsigned char mask);
 
 /////////////////////////////////////////////////////////////////////
-// MF522������
+// MF522 Command codes
 /////////////////////////////////////////////////////////////////////
-#define PCD_IDLE 0x00       // ȡ����ǰ����
-#define PCD_AUTHENT 0x0E    // ��֤��Կ
-#define PCD_RECEIVE 0x08    // ��������
-#define PCD_TRANSMIT 0x04   // ��������
-#define PCD_TRANSCEIVE 0x0C // ���Ͳ���������
-#define PCD_RESETPHASE 0x0F // ��λ
-#define PCD_CALCCRC 0x03    // CRC����
+#define PCD_IDLE 0x00       // Cancel the current command
+#define PCD_AUTHENT 0x0E    // Authentication key
+#define PCD_RECEIVE 0x08    // Receive data
+#define PCD_TRANSMIT 0x04   // Send data
+#define PCD_TRANSCEIVE 0x0C // Send and receive data
+#define PCD_RESETPHASE 0x0F // Reset
+#define PCD_CALCCRC 0x03    // CRC calculation
 
 /////////////////////////////////////////////////////////////////////
-// Mifare_One��Ƭ������
+// Mifare_One card command codes
 /////////////////////////////////////////////////////////////////////
-#define PICC_REQIDL 0x26    // Ѱ��������δ��������״̬
-#define PICC_REQALL 0x52    // Ѱ��������ȫ����
-#define PICC_ANTICOLL1 0x93 // ����ײ
-#define PICC_ANTICOLL2 0x95 // ����ײ
-#define PICC_AUTHENT1A 0x60 // ��֤A��Կ
-#define PICC_AUTHENT1B 0x61 // ��֤B��Կ
-#define PICC_READ 0x30      // ����
-#define PICC_WRITE 0xA0     // д��
-#define PICC_DECREMENT 0xC0 // �ۿ�
-#define PICC_INCREMENT 0xC1 // ��ֵ
-#define PICC_RESTORE 0xC2   // �������ݵ�������
-#define PICC_TRANSFER 0xB0  // ���滺����������
-#define PICC_HALT 0x50      // ����
+#define PICC_REQIDL 0x26    // Search for cards that are not in HALT state
+#define PICC_REQALL 0x52    // Search for all cards
+#define PICC_ANTICOLL1 0x93 // Anti-collision
+#define PICC_ANTICOLL2 0x95 // Anti-collision
+#define PICC_AUTHENT1A 0x60 // Authenticate A key
+#define PICC_AUTHENT1B 0x61 // Authenticate B key
+#define PICC_READ 0x30      // Read
+#define PICC_WRITE 0xA0     // Write
+#define PICC_DECREMENT 0xC0 // Debit
+#define PICC_INCREMENT 0xC1 // Charge/Credit
+#define PICC_RESTORE 0xC2   // Transfer data to buffer
+#define PICC_TRANSFER 0xB0  // Save buffer data to card
+#define PICC_HALT 0x50      // Sleep
 
 /////////////////////////////////////////////////////////////////////
-// MF522 FIFO���ȶ���
+// MF522 FIFO length definition
 /////////////////////////////////////////////////////////////////////
 #define DEF_FIFO_LENGTH 64 // FIFO size=64byte
 
 /////////////////////////////////////////////////////////////////////
-// MF522�Ĵ�������
+// MF522 Register definitions
 /////////////////////////////////////////////////////////////////////
 // PAGE 0
 #define RFU00 0x00
@@ -128,7 +127,7 @@ void ClearBitMask(unsigned char reg, unsigned char mask);
 #define RFU3F 0x3F
 
 /////////////////////////////////////////////////////////////////////
-// ��MF522ͨѶʱ���صĴ������
+// Status codes returned during MF522 communication
 /////////////////////////////////////////////////////////////////////
 #define MI_OK 0
 #define MI_NOTAGERR (-1)
