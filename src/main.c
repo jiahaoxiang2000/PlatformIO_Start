@@ -161,8 +161,8 @@ void ReadRFIDCard(void)
     }
 
     printf("\r\n--- READING ALL CARD DATA ---\r\n");
-    // Read all sectors (typically 16 sectors in a standard MIFARE 1K card)
-    for (sector = 0; sector < 16; sector++)
+    // Read all sectors (typically 1 sectors in a standard MIFARE 1K card)
+    for (sector = 0; sector < 1; sector++)
     {
         // Authenticate each sector
         // First block of the sector is: sector * 4
